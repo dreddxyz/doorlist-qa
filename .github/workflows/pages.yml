@@ -1,0 +1,57 @@
+name: Verify and publish
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: pages-release
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check Firefox availability
+        run: firefox --version
+      - name: Run project
+        env:
+          PREFECT_SERVER_ANALYTICS_ENABLED: 'false'
+        run: |
+          python -m playwright install --with-deps chromium
+          python run_checks.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-and-receipt
+          path: |
+            reports/*.xml
+            site/receipt.json
+      - uses: actions/upload-pages-artifact@v3
+        if: always() && hashFiles('site/receipt.json') != ''
+        with:
+          path: site
+  deploy:
+    needs: build
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - name: Publish
+        id: pages
+        uses: actions/deploy-pages@v4
